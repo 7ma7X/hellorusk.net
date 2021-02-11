@@ -1,0 +1,131 @@
+import Layout from 'lib/components/layout'
+import {} from '@geist-ui/react'
+
+export const meta = {
+  title: 'Dropbox API を駆使して AtCoder のテストケースを自動でダウンロードする',
+  date: '2021-02-11T13:46:51.254Z',
+  description: '',
+  image: '',
+}
+
+たまに AtCoder をやっていてシステムのテストケースが見たい時に、見るのが不便だなあと思うことがありました。  
+テストケースは[ここ](https://www.dropbox.com/sh/arnpe0ef5wds8cv/AAAk_SECQ2Nc6SVGii3rHX6Fa?dl=0)にアップロードされているのですが、
+
+- そもそも Dropbox でのファイル表示が見づらい
+- 入力と出力が別フォルダになっているのが不便
+
+という難点があります。
+
+幸いなことに、[AtCoder TestCase Extension](https://chrome.google.com/webstore/detail/atcoder-testcase-extensio/klmflnjcfalpmeldgkcinfilloihmbdh?hl=ja) 
+という便利な Chrome 拡張機能が公開されているので、ほとんどの方はこれを使えばよいでしょう。ただ、自分はシークレットモードを常用しているため、あまりこの手の拡張機能を入れたくないという気持ちがありました。
+また、純粋に Dropbox の共有ファイルを自動で手元にダウンロードするにはどうすればいいのだろうというエンジニア的な興味もありました。  
+実際、AtCoder TestCase Extension の製作者は[ブログ](https://tatsumack.hatenablog.com/entry/2018/12/09/113908)で
+
+> 各テストケースへのURLを取得する必要があり、DropboxのAPIからサクッと取得できると楽だったのですが、ドキュメントを調べた限りそれは難しいようでした。
+
+と述べています。これは本当なのでしょうか？
+
+いくらか試行錯誤した結果、Dropbox API を駆使することで、**スクレイピングせずに**ファイルを落とせるということが分かりました。
+そのノウハウを説明したいと思います。
+
+---
+
+前提として、Python の dropbox モジュールを使います。また、https://www.dropbox.com/developers/ からアクセストークンを作成する必要があります。
+この際 **sharing.read** と **files.metadata.read** のスコープ（scope）を許可するように設定してください。
+よく分からない方は、[この辺](https://www.dropbox.com/lp/developers/reference/oauth-guide)のドキュメントを読んでみてください。
+
+まず、API を操作するためのインスタンス `dbx` を用意します。
+
+```py
+import dropbox
+import os
+import requests
+
+dbx = dropbox.Dropbox("Dropbox のアクセストークン", scope=["sharing.read", "files.metadata.read"])
+```
+
+ファイルをダウンロードする上でのポイントが 3 つあります。
+
+1. 基本的には共有リンクの `dl=0` というパラメータを `dl=1` に変えればダウンロードが可能  
+（ただし、一度にダウンロードできるフォルダは 20 GB 未満・合計ファイル数が 1 万件未満という制限があるため、テストケースフォルダ全体を `dl=1` で一気に落とすことはできない）
+1. `/files/list_folder` API（`dbx.files_list_folder()`）で、指定したパス内のフォルダの情報を列挙可能
+1. `/sharing/get_shared_link_file` API（`dbx.sharing_get_shared_link_file()`）で、指定したパスの情報（共有リンク含む）を取得可能
+
+具体的には、以下のようなコードを書けば良いです。
+
+```py
+# AtCoder の Dropbox のリンク
+SHARED_URL = "https://www.dropbox.com/sh/arnpe0ef5wds8cv/AAAk_SECQ2Nc6SVGii3rHX6Fa?dl=0"
+
+# 各コンテストの情報が格納された配列
+contests = dbx.files_list_folder(
+    path="", 
+    shared_link=dropbox.files.SharedLink(url=SHARED_URL, password=None)
+).entries
+
+for contest in contests:
+
+    # あるコンテスト内の各問題の情報が格納された配列
+    problems = dbx.files_list_folder(
+        path=f"/{contest.name}", 
+        shared_link=dropbox.files.SharedLink(url=SHARED_URL, password=None)
+    ).entries
+
+    for problem in problems:
+
+        # 各テストケースの標準入力側が格納された配列
+        in_testcases = dbx.files_list_folder(
+            path=f"/{contest.name}/{problem.name}/in", 
+            shared_link=dropbox.files.SharedLink(url=SHARED_URL, password=None)
+        )
+
+        # 各テストケースの標準入力側をダウンロードする
+        for testcase in in_testcases.entries:
+
+            # テストケースファイルの情報を取得
+            data = dbx.sharing_get_shared_link_file(
+                url=SHARED_URL, 
+                path=f"/{contest.name}/{problem.name}/in/{testcase.name}"
+            )
+            # ダウンロード可能なURLに張り替える
+            download_url = data[0].url.replace("dl=0", "dl=1")
+
+            # Requests でダウンロードする
+            res = requests.get(download_url)
+            with open(f"ファイルの保存先のパス", 'wb') as f:
+                f.write(res.content)
+
+
+        # 各テストケースの標準出力側が格納された配列
+        out_testcases = dbx.files_list_folder(
+            path=f"/{contest.name}/{problem.name}/out", 
+            shared_link=dropbox.files.SharedLink(url=SHARED_URL, password=None)
+        )
+
+        # 各テストケースの標準出力側をダウンロードする
+        for testcase in out_testcases.entries:
+
+            # テストケースファイルの情報を取得
+            data = dbx.sharing_get_shared_link_file(
+                url=SHARED_URL, 
+                path=f"/{contest.name}/{problem.name}/out/{testcase.name}"
+            )
+            # ダウンロード可能なURLに張り替える
+            download_url = data[0].url.replace("dl=0", "dl=1")
+
+            # Requests でダウンロードする
+            res = requests.get(download_url)
+            with open(f"ファイルの保存先のパス", 'wb') as f:
+                f.write(res.content)
+```
+
+なお、上のコードは最も細かい粒度で（各テストケースごとに）ダウンロードした場合ですが、単にダウンロードするだけなら、
+コンテストの情報が得られた時点で `dbx.sharing_get_shared_link_file()` を使って各コンテストごとにフォルダをダウンロードするのが楽だと思います。  
+
+
+
+
+
+
+
+export default ({ children }) => <Layout meta={meta}>{children}</Layout>
