@@ -121,6 +121,7 @@ for contest in contests:
 
 なお、上のコードは最も細かい粒度で（各テストケースごとに）ダウンロードした場合ですが、単にダウンロードするだけなら、
 コンテストの情報が得られた時点で `dbx.sharing_get_shared_link_file()` を使って各コンテストごとにフォルダをダウンロードするのが楽だと思います。  
+あと、実際に動かす際は念のため `time.sleep(1)` とかした方がいいと思います。Rate Limit の数値は明示されていませんが、あまり雑に API を叩いていると Abuse 扱いになるっぽいです（[参考リンク](https://stackoverflow.com/questions/41105196/limits-on-dropbox-api-when-calling-from-a-single-account)）。
 
 
 
