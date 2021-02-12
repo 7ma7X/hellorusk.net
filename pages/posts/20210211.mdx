@@ -32,6 +32,8 @@ export const meta = {
 
 前提として、Python の dropbox モジュールを使います。また、https://www.dropbox.com/developers/ からアクセストークンを作成する必要があります。
 この際 **sharing.read** と **files.metadata.read** のスコープ（scope）を許可するように設定してください。
+また、（2021年9月頃に廃止されるようですが）可能であれば long-lived access tokens という有効期限が切れない（=セキュリティ的に危ない方の）アクセストークンを入手してください。
+今後デファクトになる short-lived access token は 1 つごとに 2, 3時間程度しか持たないので、ダウンロードが長時間必要な場合不便です。
 よく分からない方は、[この辺](https://www.dropbox.com/lp/developers/reference/oauth-guide)のドキュメントを読んでみてください。
 
 まず、API を操作するためのインスタンス `dbx` を用意します。
